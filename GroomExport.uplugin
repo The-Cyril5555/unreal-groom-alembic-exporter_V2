@@ -29,6 +29,10 @@
 		{
 			"Name": "AlembicImporter",
 			"Enabled": true
+		},
+		{
+			"Name": "AlembicHairImporter",
+			"Enabled": true
 		}
 	]
 }

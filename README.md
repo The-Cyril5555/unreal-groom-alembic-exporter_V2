@@ -28,18 +28,18 @@ Assets. UE ships a groom Alembic *importer* but no exporter; this plugin fills t
 
 ## Install
 
-1. Your project must be a **C++ project** (a Blueprint-only project has no build target for code plugins). If it isn't, add any C++ class once via *Tools → New C++ Class*; UE converts the project for you.
+1. To build inside your project, it must be a **C++ project** (a Blueprint-only project has no build target for code plugins). If it isn't, add any C++ class once via *Tools → New C++ Class*; UE converts the project for you. Or build the plugin on its own with `BuildPlugin` (see [Building](#building)).
 2. Copy this repository into your project as `Plugins/GroomExport/`.
 3. Open the `.uproject` and accept the "rebuild modules?" prompt, or build from the command line (see [Building](#building)).
 
-Requires the **HairStrands** and **AlembicImporter** plugins (both ship with UE and are enabled automatically as dependencies).
+Requires the **HairStrands**, **AlembicImporter** and **AlembicHairImporter** (*Alembic Groom Importer*) plugins (all ship with UE and are enabled automatically as dependencies). The last one is what lets Unreal re-import the `.abc` as a groom: without it, UE 5.8 sends `.abc` files to the static mesh importer.
 
 ## Status
 
 | Code | UE 5.7 | UE 5.8.2 |
 | --- | --- | --- |
 | Original 1.0 | ✅ verified by the original author on 2026-08-28 (details below) | ✅ compiles and exports correctly |
-| This fork, 1.1 | ⏳ not built in Unreal yet | ⏳ not built in Unreal yet: run `Tests/export_guide_modes.py` |
+| This fork, 1.1 | ⏳ not built on 5.7 yet | ✅ verified on 2026-10-31: compiles warning-free, `Tests/export_guide_modes.py` passes on 3 MetaHuman grooms (details below) |
 
 What 1.1 has been checked with so far, without Unreal (see
 [Tests/AlembicHarness](Tests/AlembicHarness/README.md)): the plugin's real
@@ -56,8 +56,26 @@ library with a small stand-in for the Unreal types, warning-free with `-Wall -We
 | Counts reported (curves, points, guides, objects) | ✅ match the archive in all 23 exports |
 | Blender 5.2.3 import | ✅ strands `groom`, `groom.001`…, guides `guides_group_N`; Y-up lands at head height |
 
-Not checked yet: compiling the editor module (dialog, Python API, physics file) and
-re-importing a *separate objects* file into Unreal.
+### 1.1 on Unreal Engine 5.8.2 (2026-10-31)
+
+Built with `RunUAT BuildPlugin` (MSVC 14.44, no warning) and run headless with
+`Tests/export_guide_modes.py`, its `GROOM_PACKAGE_DIR` pointed at a MetaHuman's
+`Grooms` folder. Result: **3 grooms, 0 failures**.
+
+| Groom | Strands | Guides | 3 guide modes: counts agree | *Separate* file re-imported, guides kept | Same without `groom_*` attributes | `.physics.json` (Blender preset) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Eyebrows_L_Shaded | 1 915 | 2 | ✅ | ✅ 2 guides | ✅ 2 guides | ✅ 1 group |
+| Eyelashes_L_Curl | 856 | 192 | ✅ | ✅ 192 guides | ✅ 192 guides | ✅ 1 group |
+| Hair_M_BobMessy | 100 498 | 1 280 | ✅ | ✅ 1 280 guides | ✅ 1 280 guides | ✅ 1 group (simulation on) |
+
+The re-import needs the engine's **AlembicHairImporter** plugin, which 1.1 now enables as
+a dependency: without it UE 5.8 hands `.abc` files to the static mesh importer and every
+groom re-import fails, 1.0 files included.
+
+Not checked yet: the options dialog and the context-menu entry in a GUI session
+(`Tests/check_menu.py`), and UE 5.7.
+
+### 1.0 on Unreal Engine 5.7 (original author)
 
 The tables below are the original author's 1.0 verification on UE 5.7, against
 MetaHuman grooms. Their curve counts include whatever guide curves the grooms carry (1.0
@@ -283,6 +301,13 @@ Then build:
 ```
 
 Or just open your `.uproject` and accept the "rebuild modules?" prompt.
+
+A Blueprint-only project has no `<YourProject>Editor` target. Build the plugin on its own
+instead, then copy the output folder to `<YourProject>/Plugins/GroomExport/`:
+
+```bash
+"<UE_ROOT>\Engine\Build\BatchFiles\RunUAT.bat" BuildPlugin -Plugin="<path>\GroomExport.uplugin" -Package="<output folder>" -TargetPlatforms=Win64
+```
 
 ## Using it
 

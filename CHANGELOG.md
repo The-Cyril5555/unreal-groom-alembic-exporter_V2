@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1 — fork by The-Cyril5555 (not yet built: see README, Status)
+## 1.1 — fork by The-Cyril5555 (verified on UE 5.8.2: see README, Status)
 
 Based on effectustasi's 1.0 (commit `9eaf714`, 2026-10-03).
 
@@ -46,10 +46,16 @@ Based on effectustasi's 1.0 (commit `9eaf714`, 2026-10-03).
 - The `ExportGroomToAlembic` doc comment sat above `IsExportMenuEntryRegistered`; it is
   back on its function.
 - The module depends on `Json` and `JsonUtilities` (both ship with the engine).
+- The plugin now enables **AlembicHairImporter** (*Alembic Groom Importer*, ships with the
+  engine). Without it Unreal 5.8 cannot import a groom `.abc` at all: `.abc` goes to the
+  static mesh importer and the groom factory reports an unknown extension, so a project
+  without that plugin could export but not re-import (UE 5.8.2).
 
 ### Compatibility
 
 - The 1.0 code compiles and exports correctly on Unreal Engine 5.8.2.
+- 1.1 compiles warning-free on Unreal Engine 5.8.2 and passes `Tests/export_guide_modes.py`
+  on three MetaHuman grooms (2026-10-31). Not built on 5.7 yet.
 
 ## 1.0 — 2026-10-03, effectustasi
 
