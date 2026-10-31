@@ -537,7 +537,21 @@ bool FGroomAlembicWriter::Export(
 
 			const FString CurvesName = GetCurvesObjectName(Bucket, InSettings.bSplitByGroup);
 
-			OCurves Curves(Xform, TCHAR_TO_UTF8(*CurvesName));
+			// A guides-only object gets a transform of its own with the same name, because
+			// Blender names an imported object after its parent transform: without it the guides
+			// would show up as one more "groom.00N" next to the strands. Strand objects keep
+			// the 1.0 layout (directly under /groom).
+			Alembic::Abc::OObject CurvesParent = Xform;
+			OXform GuidesXform;
+			if (Bucket.bGuidesOnly)
+			{
+				GuidesXform = OXform(Xform, TCHAR_TO_UTF8(*CurvesName));
+				XformSample GuidesIdentity;
+				GuidesXform.getSchema().set(GuidesIdentity);
+				CurvesParent = GuidesXform;
+			}
+
+			OCurves Curves(CurvesParent, TCHAR_TO_UTF8(*CurvesName));
 			OCurvesSchema& Schema = Curves.getSchema();
 
 			OCurvesSchema::Sample Sample;

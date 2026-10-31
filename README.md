@@ -13,9 +13,8 @@ Assets. UE ships a groom Alembic *importer* but no exporter; this plugin fills t
 
 - **Guide curves handled for Blender.** By default (like 1.0) the simulation guides are
   written in the same curves objects as the real strands, flagged by the `groom_guide`
-  attribute. Blender's Alembic importer does not act on that attribute, so it renders the
-  guides as extra hair: up to **22 % more curves** than the real lashes on a MetaHuman
-  eyelash groom. Guides can now be **kept** (round trip), written to **separate objects**,
+  attribute. Blender's Alembic importer drops that attribute, so it renders the guides as
+  extra hair: up to **22 % more curves** than the real lashes on a MetaHuman eyelash groom. Guides can now be **kept** (round trip), written to **separate objects**,
   or **left out**. See [Guide curves](#guide-curves).
 - **Blender preset** in the options dialog: Y-up, guides left out, physics settings on.
   An **Unreal round trip** preset restores the defaults.
@@ -40,7 +39,25 @@ Requires the **HairStrands** and **AlembicImporter** plugins (both ship with UE 
 | Code | UE 5.7 | UE 5.8.2 |
 | --- | --- | --- |
 | Original 1.0 | ✅ verified by the original author on 2026-08-28 (details below) | ✅ compiles and exports correctly |
-| This fork, 1.1 | ⏳ not built yet | ⏳ not built yet: run `Tests/export_guide_modes.py` |
+| This fork, 1.1 | ⏳ not built in Unreal yet | ⏳ not built in Unreal yet: run `Tests/export_guide_modes.py` |
+
+What 1.1 has been checked with so far, without Unreal (see
+[Tests/AlembicHarness](Tests/AlembicHarness/README.md)): the plugin's real
+`GroomAlembicWriter.cpp`, 1.0 and 1.1, compiled against the official Alembic 1.8.8
+library with a small stand-in for the Unreal types, warning-free with `-Wall -Wextra
+-Wshadow`, and run on synthetic grooms:
+
+| Check | Result |
+| --- | --- |
+| 1.1 *keep with the strands* vs 1.0 with guides | ✅ byte-identical, 5 settings combinations (split or not, Z-up or Y-up, unit scale, per-strand widths, no guide attribute) |
+| 1.1 *leave out* vs 1.0 without guides | ✅ byte-identical, 3 combinations (with and without groom_* attributes, Y-up) |
+| *Separate objects*: strand objects | ✅ same data as *leave out* (positions, counts, widths) |
+| *Separate objects*: guide objects | ✅ `groom_guide = 1` on every curve, also with *Export groom_\* attributes* off |
+| Counts reported (curves, points, guides, objects) | ✅ match the archive in all 16 exports |
+| Blender 5.2.3 import | ✅ strands `groom`, `groom.001`…, guides `guides_group_N`; Y-up lands at head height |
+
+Not checked yet: compiling the editor module (dialog, Python API, physics file) and
+re-importing a *separate objects* file into Unreal.
 
 The tables below are the original author's 1.0 verification on UE 5.7, against
 MetaHuman grooms. Their curve counts include whatever guide curves the grooms carry (1.0
@@ -80,13 +97,18 @@ A single archive per groom, laid out the way UE's own importer reads it
   /group_0             OCurves — one per hair group
   /group_1             OCurves
   ...
-  /guides_group_0      OCurves — guide curves of group 0, only in the
-  /guides_group_1      "separate objects" guide mode
+  /guides_group_0      OXform, identity — only in the "separate objects" guide mode
+    /guides_group_0    OCurves — the guide curves of group 0
+  /guides_group_1
+    /guides_group_1
   ...
 ```
 
 With *One curves object per hair group* turned off, the strands go into a single
-`/groom/curves` and, in the separate guide mode, the guides into `/groom/guides`.
+`/groom/curves` and, in the separate guide mode, the guides into `/groom/guides/guides`.
+The guide objects get a transform of their own because Blender names an imported object
+after its parent transform: that way they show up as `guides_group_0`, … instead of one
+more `groom.00N` among the strands.
 
 Each `OCurves` object carries:
 
@@ -121,17 +143,19 @@ apart through the per-curve `groom_guide` attribute (1 for a guide). MetaHuman g
 ship with imported guides, so their source description contains both.
 
 Version 1.0 always wrote the guides in the same `OCurves` as the strands, flagged by
-`groom_guide`. That is exactly what Unreal's importer expects, but Blender's Alembic
-importer does not use the attribute: the guides become ordinary curves and are rendered
-as extra, often thicker hair. On a MetaHuman eyelash groom that was up to 22 % more
-curves than the real lashes.
+`groom_guide`. That is exactly what Unreal's importer expects, but Blender cannot tell
+them apart: its Alembic importer keeps only the positions, radius and curve type of a
+curves object (checked with Blender 5.2.3: `groom_guide`, the other `groom_*`
+attributes and the root UVs are all dropped). The guides become ordinary curves and are
+rendered as extra, often thicker hair. On a MetaHuman eyelash groom that was up to 22 %
+more curves than the real lashes.
 
 The options dialog now has three choices:
 
 | Mode | What is written | Use it for |
 | --- | --- | --- |
 | **Keep with the strands** (default) | Guides mixed into `group_N`, flagged `groom_guide = 1` | Round trip into Unreal (byte-identical, as in 1.0) |
-| **Separate objects** | Strands in `group_N`, guides in `guides_group_N`, always flagged `groom_guide = 1` | Blender / Houdini / Maya when you want the guides too (simulation, inspection): hide or delete the `guides_*` objects to render |
+| **Separate objects** | Strands in `group_N`, guides in `guides_group_N`, always flagged `groom_guide = 1` | Blender / Houdini / Maya when you want the guides too (simulation, inspection). In Blender the strands import as `groom`, `groom.001`, … and the guides as `guides_group_N`: hide or delete those to render |
 | **Leave out** | Strands only | Rendering in Blender: nothing to clean up |
 
 In the separate mode the strand objects are exactly what the *leave out* mode writes,
@@ -303,6 +327,7 @@ constants at the top of each script to test your own assets.
 | `check_menu.py` | Confirms the context-menu entry registered. **GUI session only** (see below) |
 | `export_guide_modes.py` | 1.1: exports each groom with the three guide modes and checks the counts agree, re-imports the separate-objects file to check Unreal reads its guides back, and checks the `.physics.json` of a Blender-preset export |
 | `blender_check_abc.py` | 1.1, **runs in Blender**: lists the curves objects Blender creates from each `.abc`, with counts, attributes and height. `blender --background --factory-startup --python Tests/blender_check_abc.py -- a.abc b.abc` |
+| `AlembicHarness/` | 1.1, **runs without Unreal** (Linux, g++): compiles the real writer of 1.0 and 1.1 against Alembic and compares their output byte for byte. See its README |
 
 `check_menu.py` cannot run as a commandlet: without a Content Browser the menu is never
 built and you get a false negative. Run it in a real editor session, which quits itself:

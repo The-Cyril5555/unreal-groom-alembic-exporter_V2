@@ -7,10 +7,10 @@ Based on effectustasi's 1.0 (commit `9eaf714`, 2026-10-03).
 ### Added
 
 - **Guide curve modes** (`EGroomAlembicGuideMode`): *Keep with the strands* (the 1.0
-  behaviour, default), *Separate objects* (`guides_group_N`, always flagged
-  `groom_guide = 1`) and *Leave out*. Blender's Alembic importer does not act on
-  `groom_guide`, so with 1.0 it rendered the guides as extra hair (up to 22 % extra
-  curves on a MetaHuman eyelash groom).
+  behaviour, default), *Separate objects* (`/groom/guides_group_N/guides_group_N`, always
+  flagged `groom_guide = 1`, imported by Blender as objects named `guides_group_N`) and
+  *Leave out*. Blender's Alembic importer drops `groom_guide`, so with 1.0 it rendered the
+  guides as extra hair (up to 22 % extra curves on a MetaHuman eyelash groom).
 - **Presets** in the options dialog: *Blender* (Y-up, guides left out, physics settings
   on) and *Unreal round trip* (the defaults).
 - **Physics settings file**: optional `<name>.physics.json` next to the `.abc` with the
@@ -21,8 +21,9 @@ Based on effectustasi's 1.0 (commit `9eaf714`, 2026-10-03).
   `GetUnrealRoundTripExportOptions()`.
 - The completion notification says how many guide curves were kept, separated or left
   out, and whether a physics settings file was written.
-- Tests: `Tests/export_guide_modes.py` (Unreal) and `Tests/blender_check_abc.py`
-  (Blender).
+- Tests: `Tests/export_guide_modes.py` (Unreal), `Tests/blender_check_abc.py`
+  (Blender) and `Tests/AlembicHarness` (Linux, no Unreal: compiles the real writer of 1.0
+  and 1.1 against Alembic and compares their output byte for byte).
 
 ### Changed
 

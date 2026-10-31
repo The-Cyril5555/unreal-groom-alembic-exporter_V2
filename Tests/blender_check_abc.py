@@ -3,10 +3,12 @@ Blender-side check of exported grooms: what Blender actually imports from each .
 
 For every file it lists the curves objects Blender creates, with their curve / point
 counts, the attributes Blender kept, and the world-space Z range (a Y-up export of a
-MetaHuman should land at head height, about 150-185 cm). Objects named guides_* are the
-guide curves written by the "separate objects" guide mode; a file exported with guides
-kept with the strands (the Unreal round trip mode) has no such object, its guides are
-hidden inside the strand objects and get rendered as hair.
+MetaHuman should land at head height, about 150-185 cm). Blender names the strand
+objects after the /groom transform (groom, groom.001, ...); the guide curves written by
+the "separate objects" guide mode come in as guides_group_N (or guides). A file exported
+with guides kept with the strands (the Unreal round trip mode) has no such object: its
+guides are inside the strand objects and get rendered as hair, since Blender drops the
+groom_guide attribute (the "attributes" line shows what Blender kept).
 
 Run with Blender in the background (no UI), one or more files after "--":
 

@@ -10,7 +10,10 @@ class UGroomAsset;
 /** One OCurves object of the written archive. */
 struct FGroomExportCurvesObject
 {
-	/** Alembic object name, e.g. "group_0" or "guides_group_0". */
+	/**
+	 * Alembic object name, e.g. "group_0" or "guides_group_0". A guides-only object sits
+	 * under a transform of the same name: /groom/guides_group_0/guides_group_0.
+	 */
 	FString Name;
 	/** Hair group the curves belong to (0 when the groom is not split by group). */
 	int32 GroupID = 0;
@@ -61,7 +64,8 @@ struct FGroomExportResult
  *     /group_0                 OCurves, linear / non-periodic / no basis
  *     /group_1                 OCurves
  *     ...
- *     /guides_group_0          OCurves, guide curves only (EGroomAlembicGuideMode::Separate)
+ *     /guides_group_0          OXform, identity (EGroomAlembicGuideMode::Separate only)
+ *       /guides_group_0        OCurves, guide curves only
  *     /guides_group_1          ...
  *
  * Each OCurves carries:

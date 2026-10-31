@@ -2,3 +2,4 @@ Binaries/
 Intermediate/
 __pycache__/
 *.pyc
+Tests/AlembicHarness/build/
