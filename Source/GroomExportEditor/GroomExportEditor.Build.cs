@@ -29,7 +29,11 @@ namespace UnrealBuildTool.Rules
 
 					// Groom
 					"HairStrandsCore",
-					"MeshDescription"
+					"MeshDescription",
+
+					// Physics settings sidecar (<file>.physics.json)
+					"Json",
+					"JsonUtilities"
 				});
 		}
 	}

@@ -9,6 +9,37 @@
 #include "ToolMenuSection.h"
 #include "ToolMenus.h"
 
+namespace GroomExportLibraryPrivate
+{
+	static FGroomExportSettings ToSettings(const FGroomAlembicExportOptions& Options)
+	{
+		FGroomExportSettings Settings;
+		Settings.CoordSystem = Options.bConvertToYUp ? EGroomExportCoordSystem::YUpRightHanded : EGroomExportCoordSystem::UnrealZUp;
+		Settings.UnitScale = Options.UnitScale;
+		Settings.bSplitByGroup = Options.bSplitByGroup;
+		Settings.bExportWidths = Options.bExportWidths;
+		Settings.bExportRootUVs = Options.bExportRootUV;
+		Settings.bExportGroomAttributes = Options.bExportGroomAttributes;
+		Settings.GuideMode = Options.GuideMode;
+		Settings.bWritePhysicsSettings = Options.bWritePhysicsSettings;
+		return Settings;
+	}
+
+	static FGroomAlembicExportOptions ToOptions(const FGroomExportSettings& Settings)
+	{
+		FGroomAlembicExportOptions Options;
+		Options.bConvertToYUp = Settings.CoordSystem == EGroomExportCoordSystem::YUpRightHanded;
+		Options.UnitScale = Settings.UnitScale;
+		Options.bSplitByGroup = Settings.bSplitByGroup;
+		Options.bExportWidths = Settings.bExportWidths;
+		Options.bExportRootUV = Settings.bExportRootUVs;
+		Options.bExportGroomAttributes = Settings.bExportGroomAttributes;
+		Options.GuideMode = Settings.GuideMode;
+		Options.bWritePhysicsSettings = Settings.bWritePhysicsSettings;
+		return Options;
+	}
+}
+
 bool UGroomExportBlueprintLibrary::IsExportMenuEntryRegistered()
 {
 	UToolMenus* Menus = UToolMenus::Get();
@@ -54,7 +85,7 @@ bool UGroomExportBlueprintLibrary::ExportGroomToAlembic(
 	FGroomExportSettings Settings;
 	Settings.CoordSystem = bConvertToYUp ? EGroomExportCoordSystem::YUpRightHanded : EGroomExportCoordSystem::UnrealZUp;
 	Settings.UnitScale = UnitScale;
-	Settings.bExportGuideCurves = bExportGuideCurves;
+	Settings.GuideMode = bExportGuideCurves ? EGroomAlembicGuideMode::Mixed : EGroomAlembicGuideMode::Exclude;
 
 	FGroomExportResult Result;
 	const bool bSuccess = FGroomAlembicWriter::Export(GroomAsset, Filename, Settings, Result);
@@ -68,4 +99,37 @@ bool UGroomExportBlueprintLibrary::ExportGroomToAlembic(
 	}
 
 	return bSuccess;
+}
+
+FGroomAlembicExportReport UGroomExportBlueprintLibrary::ExportGroomToAlembicWithOptions(
+	UGroomAsset* GroomAsset,
+	const FString& Filename,
+	const FGroomAlembicExportOptions& Options)
+{
+	const FGroomExportSettings Settings = GroomExportLibraryPrivate::ToSettings(Options);
+
+	FGroomExportResult Result;
+	FGroomAlembicExportReport Report;
+	Report.bSuccess = FGroomAlembicWriter::Export(GroomAsset, Filename, Settings, Result);
+	Report.Error = Report.bSuccess ? FString() : Result.ErrorText.ToString();
+	Report.NumGroups = Result.NumGroups;
+	Report.NumCurveObjects = Result.CurvesObjects.Num();
+	Report.NumCurves = Result.NumCurves;
+	Report.NumPoints = Result.NumPoints;
+	Report.NumGuideCurves = Result.NumGuideCurves;
+	Report.NumGuidePoints = Result.NumGuidePoints;
+	Report.NumGuideCurvesSkipped = Result.NumGuideCurvesSkipped;
+	Report.AlembicFile = Result.AlembicFile;
+	Report.PhysicsSettingsFile = Result.PhysicsSettingsFile;
+	return Report;
+}
+
+FGroomAlembicExportOptions UGroomExportBlueprintLibrary::GetUnrealRoundTripExportOptions()
+{
+	return GroomExportLibraryPrivate::ToOptions(FGroomExportSettings::MakeUnrealRoundTrip());
+}
+
+FGroomAlembicExportOptions UGroomExportBlueprintLibrary::GetBlenderExportOptions()
+{
+	return GroomExportLibraryPrivate::ToOptions(FGroomExportSettings::MakeBlender());
 }

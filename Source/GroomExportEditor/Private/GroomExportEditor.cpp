@@ -54,6 +54,56 @@ namespace GroomExportMenu
 		return GLastUsedDirectory.IsEmpty() ? FPaths::ProjectSavedDir() : GLastUsedDirectory;
 	}
 
+	/** Guide curve totals over a batch, to tell the user where the guides went. */
+	struct FGuideTotals
+	{
+		int32 Mixed = 0;
+		int32 Separate = 0;
+		int32 LeftOut = 0;
+		int32 PhysicsFiles = 0;
+
+		void Add(const FGroomExportSettings& Settings, const FGroomExportResult& Result)
+		{
+			if (Settings.GuideMode == EGroomAlembicGuideMode::Separate)
+			{
+				Separate += Result.NumGuideCurves;
+			}
+			else
+			{
+				Mixed += Result.NumGuideCurves;
+			}
+			LeftOut += Result.NumGuideCurvesSkipped;
+			PhysicsFiles += Result.PhysicsSettingsFile.IsEmpty() ? 0 : 1;
+		}
+
+		/** Extra notification lines, empty when there is nothing to say. */
+		FText Describe() const
+		{
+			TArray<FText> Lines;
+			if (Mixed > 0)
+			{
+				Lines.Add(FText::Format(LOCTEXT("GuidesMixedFmt",
+					"{0} guide curve(s) kept with the strands. Blender renders them as extra hair: use the "
+					"Blender preset, or write guides to separate objects."), FText::AsNumber(Mixed)));
+			}
+			if (Separate > 0)
+			{
+				Lines.Add(FText::Format(LOCTEXT("GuidesSeparateFmt",
+					"{0} guide curve(s) written to separate guides_* objects."), FText::AsNumber(Separate)));
+			}
+			if (LeftOut > 0)
+			{
+				Lines.Add(FText::Format(LOCTEXT("GuidesLeftOutFmt",
+					"{0} guide curve(s) left out."), FText::AsNumber(LeftOut)));
+			}
+			if (PhysicsFiles > 0)
+			{
+				Lines.Add(LOCTEXT("PhysicsWritten", "Physics settings written next to the .abc (.physics.json)."));
+			}
+			return FText::Join(FText::FromString(TEXT("\n")), Lines);
+		}
+	};
+
 	static void NotifyResult(bool bSuccess, const FText& Message)
 	{
 		FNotificationInfo Info(Message);
@@ -174,6 +224,7 @@ namespace GroomExportMenu
 		int32 NumFailed = 0;
 		FText FirstError;
 		FString LastWrittenFile;
+		FGuideTotals GuideTotals;
 
 		FScopedSlowTask SlowTask(static_cast<float>(PendingExports.Num()), LOCTEXT("ExportingGrooms", "Exporting grooms to Alembic..."));
 		SlowTask.MakeDialog(/*bShowCancelButton*/ true);
@@ -192,6 +243,7 @@ namespace GroomExportMenu
 			{
 				++NumExported;
 				LastWrittenFile = Pending.Filename;
+				GuideTotals.Add(Pending.Settings, Result);
 			}
 			else
 			{
@@ -211,16 +263,17 @@ namespace GroomExportMenu
 				LOCTEXT("ExportFailedFmt", "Groom export failed for {0} of {1} asset(s).\n{2}"),
 				FText::AsNumber(NumFailed), FText::AsNumber(NumExported + NumFailed), FirstError));
 		}
-		else if (NumExported == 1)
+		else if (NumExported > 0)
 		{
-			NotifyResult(true, FText::Format(
-				LOCTEXT("ExportedOneFmt", "Exported groom to {0}"), FText::FromString(LastWrittenFile)));
-		}
-		else if (NumExported > 1)
-		{
-			NotifyResult(true, FText::Format(
-				LOCTEXT("ExportedManyFmt", "Exported {0} grooms to {1}"),
-				FText::AsNumber(NumExported), FText::FromString(TargetDirectory)));
+			const FText Summary = (NumExported == 1)
+				? FText::Format(LOCTEXT("ExportedOneFmt", "Exported groom to {0}"), FText::FromString(LastWrittenFile))
+				: FText::Format(LOCTEXT("ExportedManyFmt", "Exported {0} grooms to {1}"),
+					FText::AsNumber(NumExported), FText::FromString(TargetDirectory));
+
+			const FText Details = GuideTotals.Describe();
+			NotifyResult(true, Details.IsEmpty()
+				? Summary
+				: FText::Format(LOCTEXT("ExportedWithDetailsFmt", "{0}\n{1}"), Summary, Details));
 		}
 	}
 

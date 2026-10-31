@@ -1,6 +1,7 @@
 // Groom Alembic Exporter
 
 #include "GroomAlembicWriter.h"
+#include "GroomPhysicsSettingsWriter.h"
 
 #include "GroomAsset.h"
 #include "HairAttributes.h"
@@ -77,6 +78,25 @@ namespace GroomExportPrivate
 			return true;
 		}
 		return false;
+	}
+
+	/** The strands that go into one OCurves object. */
+	struct FStrandBucket
+	{
+		int32 GroupID = 0;
+		/** Holds guide curves only (Separate guide mode). */
+		bool bGuidesOnly = false;
+		TArray<int32> Strands;
+	};
+
+	/** Alembic object name for a bucket. Strand objects keep the original names. */
+	FString GetCurvesObjectName(const FStrandBucket& Bucket, bool bSplitByGroup)
+	{
+		if (Bucket.bGuidesOnly)
+		{
+			return bSplitByGroup ? FString::Printf(TEXT("guides_group_%d"), Bucket.GroupID) : FString(TEXT("guides"));
+		}
+		return bSplitByGroup ? FString::Printf(TEXT("group_%d"), Bucket.GroupID) : FString(TEXT("curves"));
 	}
 
 	/**
@@ -359,14 +379,19 @@ bool FGroomAlembicWriter::Export(
 		}
 	}
 
-	// Bucket strands by group, preserving first-seen group order.
-	TArray<int32> GroupIDs;
-	TArray<TArray<int32>> GroupStrands;
+	// Bucket strands into OCurves objects by group, preserving first-seen group order.
+	// In Separate guide mode the guides get buckets of their own, written after every
+	// strand bucket so the strand objects keep exactly the layout of the other modes.
+	TArray<FStrandBucket> Buckets;
 	{
-		TMap<int32, int32> GroupIDToIndex;
+		TArray<FStrandBucket> GuideBuckets;
+		TMap<int32, int32> StrandBucketIndex;
+		TMap<int32, int32> GuideBucketIndex;
+
 		for (int32 StrandIndex = 0; StrandIndex < NumStrands; ++StrandIndex)
 		{
-			if (!InSettings.bExportGuideCurves && GuideRef.IsValid() && GuideRef[FStrandID(StrandIndex)] != 0)
+			const bool bIsGuide = GuideRef.IsValid() && GuideRef[FStrandID(StrandIndex)] != 0;
+			if (bIsGuide && InSettings.GuideMode == EGroomAlembicGuideMode::Exclude)
 			{
 				++OutResult.NumGuideCurvesSkipped;
 				continue;
@@ -376,21 +401,29 @@ bool FGroomAlembicWriter::Export(
 				? GroupIDRef[FStrandID(StrandIndex)]
 				: 0;
 
-			int32* ExistingIndex = GroupIDToIndex.Find(GroupID);
+			const bool bToGuideBucket = bIsGuide && InSettings.GuideMode == EGroomAlembicGuideMode::Separate;
+			TArray<FStrandBucket>& TargetBuckets = bToGuideBucket ? GuideBuckets : Buckets;
+			TMap<int32, int32>& TargetIndex = bToGuideBucket ? GuideBucketIndex : StrandBucketIndex;
+
+			int32* ExistingIndex = TargetIndex.Find(GroupID);
 			if (!ExistingIndex)
 			{
-				const int32 NewIndex = GroupIDs.Add(GroupID);
-				GroupStrands.AddDefaulted();
-				ExistingIndex = &GroupIDToIndex.Add(GroupID, NewIndex);
+				FStrandBucket NewBucket;
+				NewBucket.GroupID = GroupID;
+				NewBucket.bGuidesOnly = bToGuideBucket;
+				const int32 NewIndex = TargetBuckets.Add(MoveTemp(NewBucket));
+				ExistingIndex = &TargetIndex.Add(GroupID, NewIndex);
 			}
-			GroupStrands[*ExistingIndex].Add(StrandIndex);
+			TargetBuckets[*ExistingIndex].Strands.Add(StrandIndex);
 		}
+
+		Buckets.Append(MoveTemp(GuideBuckets));
 	}
 
-	if (GroupIDs.Num() == 0)
+	if (Buckets.Num() == 0)
 	{
 		OutResult.ErrorText = LOCTEXT("NoCurvesToExport",
-			"There are no curves left to export. If this groom only contains guides, enable 'Export guide curves'.");
+			"There are no curves left to export. If this groom only contains guides, set 'Guide curves' to keep them.");
 		return false;
 	}
 
@@ -399,6 +432,13 @@ bool FGroomAlembicWriter::Export(
 	{
 		GatherPassthroughAttributes(HairDescription, PassthroughAttributes);
 	}
+
+	// A guides-only object must stay recognisable as guides even when the groom_*
+	// attributes are not exported, so it gets an explicit groom_guide = 1 in that case.
+	const bool bPassthroughWritesGuideFlag = PassthroughAttributes.ContainsByPredicate(
+		[](const FPassthroughAttribute& Attr) { return Attr.Name == HairAttribute::Strand::Guide; });
+
+	TSet<int32> WrittenGroupIDs;
 
 	// Make sure the destination directory exists before Alembic tries to open the file.
 	const FString AbsoluteFilename = FPaths::ConvertRelativePathToFull(InFilename);
@@ -428,18 +468,26 @@ bool FGroomAlembicWriter::Export(
 		}
 		WriteGroomUserProperties(Xform, HairDescription);
 
-		for (int32 GroupIndex = 0; GroupIndex < GroupIDs.Num(); ++GroupIndex)
+		for (const FStrandBucket& Bucket : Buckets)
 		{
-			const TArray<int32>& Strands = GroupStrands[GroupIndex];
+			const TArray<int32>& Strands = Bucket.Strands;
 			if (Strands.Num() == 0)
 			{
 				continue;
 			}
 
 			int32 GroupPointCount = 0;
+			int32 BucketGuideCurves = 0;
+			int32 BucketGuidePoints = 0;
 			for (int32 StrandIndex : Strands)
 			{
-				GroupPointCount += VertexCountRef[FStrandID(StrandIndex)];
+				const int32 Count = VertexCountRef[FStrandID(StrandIndex)];
+				GroupPointCount += Count;
+				if (GuideRef.IsValid() && GuideRef[FStrandID(StrandIndex)] != 0)
+				{
+					++BucketGuideCurves;
+					BucketGuidePoints += Count;
+				}
 			}
 
 			std::vector<Alembic::Abc::V3f> Positions;
@@ -487,9 +535,7 @@ bool FGroomAlembicWriter::Export(
 				}
 			}
 
-			const FString CurvesName = InSettings.bSplitByGroup
-				? FString::Printf(TEXT("group_%d"), GroupIDs[GroupIndex])
-				: FString(TEXT("curves"));
+			const FString CurvesName = GetCurvesObjectName(Bucket, InSettings.bSplitByGroup);
 
 			OCurves Curves(Xform, TCHAR_TO_UTF8(*CurvesName));
 			OCurvesSchema& Schema = Curves.getSchema();
@@ -638,9 +684,28 @@ bool FGroomAlembicWriter::Export(
 				}
 			}
 
+			if (Bucket.bGuidesOnly && !bPassthroughWritesGuideFlag)
+			{
+				std::vector<int32_t> GuideFlags(static_cast<size_t>(Strands.Num()), 1);
+				OInt32GeomParam Param(Schema.getArbGeomParams(), TCHAR_TO_UTF8(*HairAttribute::Strand::Guide.ToString()),
+					/*isIndexed*/ false, kUniformScope, 1);
+				Param.set(OInt32GeomParam::Sample(
+					Alembic::Abc::Int32ArraySample(GuideFlags.data(), GuideFlags.size()), kUniformScope));
+			}
+
+			FGroomExportCurvesObject& ObjectInfo = OutResult.CurvesObjects.AddDefaulted_GetRef();
+			ObjectInfo.Name = CurvesName;
+			ObjectInfo.GroupID = Bucket.GroupID;
+			ObjectInfo.bGuidesOnly = Bucket.bGuidesOnly;
+			ObjectInfo.NumCurves = Strands.Num();
+			ObjectInfo.NumPoints = GroupPointCount;
+			ObjectInfo.NumGuideCurves = BucketGuideCurves;
+
 			OutResult.NumCurves += Strands.Num();
 			OutResult.NumPoints += GroupPointCount;
-			++OutResult.NumGroups;
+			OutResult.NumGuideCurves += BucketGuideCurves;
+			OutResult.NumGuidePoints += BucketGuidePoints;
+			WrittenGroupIDs.Add(Bucket.GroupID);
 		}
 	}
 	catch (const std::exception& Exception)
@@ -652,11 +717,31 @@ bool FGroomAlembicWriter::Export(
 		return false;
 	}
 
+	OutResult.NumGroups = WrittenGroupIDs.Num();
+	OutResult.AlembicFile = AbsoluteFilename;
+
 	UE_LOG(LogGroomExport, Log,
-		TEXT("Exported '%s' to '%s': %d group(s), %d curve(s), %d point(s)%s."),
+		TEXT("Exported '%s' to '%s': %d group(s), %d curves object(s), %d curve(s), %d point(s); guides: %d written (%s), %d left out."),
 		*InGroomAsset->GetName(), *AbsoluteFilename,
-		OutResult.NumGroups, OutResult.NumCurves, OutResult.NumPoints,
-		OutResult.NumGuideCurvesSkipped > 0 ? TEXT(" (guides skipped)") : TEXT(""));
+		OutResult.NumGroups, OutResult.CurvesObjects.Num(), OutResult.NumCurves, OutResult.NumPoints,
+		OutResult.NumGuideCurves,
+		InSettings.GuideMode == EGroomAlembicGuideMode::Separate ? TEXT("separate objects") : TEXT("mixed with the strands"),
+		OutResult.NumGuideCurvesSkipped);
+
+	if (InSettings.bWritePhysicsSettings)
+	{
+		const FString PhysicsFilename = FGroomPhysicsSettingsWriter::GetSidecarFilename(AbsoluteFilename);
+		FText PhysicsError;
+		if (!FGroomPhysicsSettingsWriter::Write(InGroomAsset, PhysicsFilename, InSettings, OutResult, PhysicsError))
+		{
+			OutResult.ErrorText = FText::Format(
+				LOCTEXT("PhysicsFailedFmt", "The .abc was written to '{0}', but its physics settings file could not be: {1}"),
+				FText::FromString(AbsoluteFilename), PhysicsError);
+			return false;
+		}
+		OutResult.PhysicsSettingsFile = PhysicsFilename;
+		UE_LOG(LogGroomExport, Log, TEXT("Wrote physics settings of '%s' to '%s'."), *InGroomAsset->GetName(), *PhysicsFilename);
+	}
 
 	return true;
 #else

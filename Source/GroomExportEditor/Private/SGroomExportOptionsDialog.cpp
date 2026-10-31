@@ -40,6 +40,43 @@ namespace GroomExportOptionsDialog
 
 				TSharedRef<SVerticalBox> Options = SNew(SVerticalBox);
 
+				// Presets: one click sets every option below for the usual destinations.
+				Options->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
+				[
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
+					[
+						SNew(STextBlock).Text(LOCTEXT("Presets", "Presets:"))
+					]
+					+ SHorizontalBox::Slot().AutoWidth().Padding(0.f, 0.f, 4.f, 0.f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("PresetUnreal", "Unreal round trip"))
+						.ToolTipText(LOCTEXT("PresetUnrealTip",
+							"The defaults: Unreal space, guides kept with the strands. Re-importing the file into "
+							"Unreal with the groom importer's default settings reproduces the original groom."))
+						.OnClicked_Lambda([this]()
+						{
+							Settings = FGroomExportSettings::MakeUnrealRoundTrip();
+							return FReply::Handled();
+						})
+					]
+					+ SHorizontalBox::Slot().AutoWidth()
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("PresetBlender", "Blender"))
+						.ToolTipText(LOCTEXT("PresetBlenderTip",
+							"Y-up, centimeters, guide curves left out, physics settings written next to the file.\n\n"
+							"Blender's Alembic importer ignores the groom_guide attribute, so guides kept in the "
+							"file are rendered as extra hair."))
+						.OnClicked_Lambda([this]()
+						{
+							Settings = FGroomExportSettings::MakeBlender();
+							return FReply::Handled();
+						})
+					]
+				];
+
 				Options->AddSlot().AutoHeight().Padding(0.f, 2.f)
 				[
 					MakeCheckBox(
@@ -113,12 +150,42 @@ namespace GroomExportOptionsDialog
 						"round trip back into Unreal."),
 					Settings.bExportGroomAttributes);
 
+				Options->AddSlot().AutoHeight().Padding(0.f, 8.f, 0.f, 2.f)
+				[
+					SNew(STextBlock)
+					.Text(LOCTEXT("GuidesHeader", "Guide curves (simulation guides, flagged groom_guide):"))
+					.ToolTipText(LOCTEXT("GuidesHeaderTip",
+						"Guides drive the hair physics and are not meant to be rendered. Unreal tells them apart "
+						"through the groom_guide attribute, but most DCC importers - Blender's included - ignore "
+						"it and render them as extra hair."))
+				];
+
+				AddGuideModeRadio(Options, EGroomAlembicGuideMode::Mixed,
+					LOCTEXT("GuidesMixed", "Keep with the strands (Unreal round trip)"),
+					LOCTEXT("GuidesMixedTip",
+						"Guides stay in the same curves objects as the strands, flagged by groom_guide. "
+						"Re-imports into Unreal exactly, but Blender renders them as hair."));
+
+				AddGuideModeRadio(Options, EGroomAlembicGuideMode::Separate,
+					LOCTEXT("GuidesSeparate", "Write to separate objects (guides_group_N)"),
+					LOCTEXT("GuidesSeparateTip",
+						"Guides go into their own curves objects, always flagged with groom_guide = 1, so they can "
+						"be hidden, deleted or used for simulation in any DCC. Unreal's importer still reads them "
+						"back as guides."));
+
+				AddGuideModeRadio(Options, EGroomAlembicGuideMode::Exclude,
+					LOCTEXT("GuidesExclude", "Leave out (render strands only)"),
+					LOCTEXT("GuidesExcludeTip",
+						"Guides are not written. Recommended for Blender rendering. Unreal regenerates guides "
+						"from the strands if the file is imported back."));
+
 				AddSimpleCheckBox(Options,
-					LOCTEXT("Guides", "Export guide curves"),
-					LOCTEXT("GuidesTip",
-						"Includes the curves flagged as simulation guides (groom_guide). Turn off to export only "
-						"the render strands."),
-					Settings.bExportGuideCurves);
+					LOCTEXT("Physics", "Write physics settings (.physics.json)"),
+					LOCTEXT("PhysicsTip",
+						"Also writes <file>.physics.json next to the .abc with the groom's per-group simulation "
+						"settings: stiffness and damping, gravity and air drag, collisions, guide interpolation. "
+						"Values are in Unreal units (centimeters, Z-up)."),
+					Settings.bWritePhysicsSettings);
 
 				if (NumAssets > 1)
 				{
@@ -194,6 +261,31 @@ namespace GroomExportOptionsDialog
 					[
 						SNew(STextBlock).Text(Label).ToolTipText(ToolTip)
 					];
+			}
+
+			/** Adds one radio button of the guide mode choice. */
+			void AddGuideModeRadio(TSharedRef<SVerticalBox> Container, EGroomAlembicGuideMode Mode, const FText& Label, const FText& ToolTip)
+			{
+				Container->AddSlot().AutoHeight().Padding(16.f, 1.f, 0.f, 1.f)
+				[
+					SNew(SCheckBox)
+					.Style(FAppStyle::Get(), "RadioButton")
+					.ToolTipText(ToolTip)
+					.IsChecked_Lambda([this, Mode]()
+					{
+						return Settings.GuideMode == Mode ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+					})
+					.OnCheckStateChanged_Lambda([this, Mode](ECheckBoxState NewState)
+					{
+						if (NewState == ECheckBoxState::Checked)
+						{
+							Settings.GuideMode = Mode;
+						}
+					})
+					[
+						SNew(STextBlock).Text(Label).ToolTipText(ToolTip)
+					]
+				];
 			}
 
 			/** Adds a checkbox bound directly to a bool member of Settings. */

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GroomExportTypes.h"
 
 /** Target coordinate convention for the written Alembic file. */
 enum class EGroomExportCoordSystem : uint8
@@ -56,6 +57,31 @@ struct FGroomExportSettings
 	/** Write groom_group_id / groom_id / groom_guide / groom_clumpid arbGeomParams. */
 	bool bExportGroomAttributes = true;
 
-	/** Also export the curves flagged as guides (groom_guide == 1). */
-	bool bExportGuideCurves = true;
+	/**
+	 * Where the curves flagged as simulation guides (groom_guide != 0) go: mixed with the
+	 * strands (round trip), in their own curves objects, or left out.
+	 */
+	EGroomAlembicGuideMode GuideMode = EGroomAlembicGuideMode::Mixed;
+
+	/** Also write the groom's simulation settings to <file>.physics.json next to the .abc. */
+	bool bWritePhysicsSettings = false;
+
+	/** Settings that round-trip back into Unreal unchanged (the defaults). */
+	static FGroomExportSettings MakeUnrealRoundTrip()
+	{
+		return FGroomExportSettings();
+	}
+
+	/**
+	 * Settings for Blender: Y-up, centimeters, no guide curves (Blender would render them
+	 * as extra hair), and the physics settings written next to the file.
+	 */
+	static FGroomExportSettings MakeBlender()
+	{
+		FGroomExportSettings Settings;
+		Settings.CoordSystem = EGroomExportCoordSystem::YUpRightHanded;
+		Settings.GuideMode = EGroomAlembicGuideMode::Exclude;
+		Settings.bWritePhysicsSettings = true;
+		return Settings;
+	}
 };

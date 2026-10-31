@@ -1,7 +1,31 @@
-# Groom Alembic Exporter (UE 5.7)
+# Groom Alembic Exporter 1.1 (UE 5.7 / 5.8)
 
 Adds **Export Groom to Alembic (.abc)…** to the Content Browser context menu of Groom
 Assets. UE ships a groom Alembic *importer* but no exporter; this plugin fills that gap.
+
+> **This is a fork.** The exporter was written by
+> [effectustasi](https://github.com/effectustasi) and published as
+> [effectustasi/unreal-groom-alembic-exporter](https://github.com/effectustasi/unreal-groom-alembic-exporter)
+> under the MIT license; the original history is kept in this repository. Version 1.1
+> adds what came up while exporting MetaHumans to Blender. See [CHANGELOG.md](CHANGELOG.md).
+
+## What's new in 1.1
+
+- **Guide curves handled for Blender.** By default (like 1.0) the simulation guides are
+  written in the same curves objects as the real strands, flagged by the `groom_guide`
+  attribute. Blender's Alembic importer does not act on that attribute, so it renders the
+  guides as extra hair: up to **22 % more curves** than the real lashes on a MetaHuman
+  eyelash groom. Guides can now be **kept** (round trip), written to **separate objects**,
+  or **left out**. See [Guide curves](#guide-curves).
+- **Blender preset** in the options dialog: Y-up, guides left out, physics settings on.
+  An **Unreal round trip** preset restores the defaults.
+- **Physics settings file.** Optionally writes `<name>.physics.json` next to the `.abc`
+  with the groom's per-group simulation settings (stiffness, damping, gravity, air drag,
+  collisions, guide interpolation), which Alembic has no place for. See
+  [Physics settings file](#physics-settings-file).
+- **Scripting:** `ExportGroomToAlembicWithOptions` exposes every option and returns a
+  report struct. The 1.0 `ExportGroomToAlembic` is unchanged for existing scripts.
+- **Unreal 5.8:** the 1.0 code compiles and exports correctly on UE 5.8.2.
 
 ## Install
 
@@ -13,7 +37,14 @@ Requires the **HairStrands** and **AlembicImporter** plugins (both ship with UE 
 
 ## Status
 
-Builds and works on UE 5.7. Verified on 2026-08-28 against MetaHuman grooms.
+| Code | UE 5.7 | UE 5.8.2 |
+| --- | --- | --- |
+| Original 1.0 | ✅ verified by the original author on 2026-08-28 (details below) | ✅ compiles and exports correctly |
+| This fork, 1.1 | ⏳ not built yet | ⏳ not built yet: run `Tests/export_guide_modes.py` |
+
+The tables below are the original author's 1.0 verification on UE 5.7, against
+MetaHuman grooms. Their curve counts include whatever guide curves the grooms carry (1.0
+kept them by default).
 
 | Check | Result |
 | --- | --- |
@@ -49,7 +80,13 @@ A single archive per groom, laid out the way UE's own importer reads it
   /group_0             OCurves — one per hair group
   /group_1             OCurves
   ...
+  /guides_group_0      OCurves — guide curves of group 0, only in the
+  /guides_group_1      "separate objects" guide mode
+  ...
 ```
+
+With *One curves object per hair group* turned off, the strands go into a single
+`/groom/curves` and, in the separate guide mode, the guides into `/groom/guides`.
 
 Each `OCurves` object carries:
 
@@ -75,6 +112,87 @@ It deliberately does **not** read `HairGroupsPlatformData[i].Strands.BulkData`. 
 is decimated and quantized for rendering, so exporting it would silently produce a
 degraded groom. If a groom has no source description (cooked asset, or editor-only data
 stripped), the export fails with an explanatory message instead of writing bad data.
+
+## Guide curves
+
+A groom holds two kinds of curves: the **strands** that are rendered, and the
+**guides** that the physics simulates and that drive the strands. Unreal tells them
+apart through the per-curve `groom_guide` attribute (1 for a guide). MetaHuman grooms
+ship with imported guides, so their source description contains both.
+
+Version 1.0 always wrote the guides in the same `OCurves` as the strands, flagged by
+`groom_guide`. That is exactly what Unreal's importer expects, but Blender's Alembic
+importer does not use the attribute: the guides become ordinary curves and are rendered
+as extra, often thicker hair. On a MetaHuman eyelash groom that was up to 22 % more
+curves than the real lashes.
+
+The options dialog now has three choices:
+
+| Mode | What is written | Use it for |
+| --- | --- | --- |
+| **Keep with the strands** (default) | Guides mixed into `group_N`, flagged `groom_guide = 1` | Round trip into Unreal (byte-identical, as in 1.0) |
+| **Separate objects** | Strands in `group_N`, guides in `guides_group_N`, always flagged `groom_guide = 1` | Blender / Houdini / Maya when you want the guides too (simulation, inspection): hide or delete the `guides_*` objects to render |
+| **Leave out** | Strands only | Rendering in Blender: nothing to clean up |
+
+In the separate mode the strand objects are exactly what the *leave out* mode writes,
+and a guide object stays recognisable even with *Export groom_\* attributes* off: it
+always carries `groom_guide = 1`, which is how Unreal's importer recognises guides;
+`Tests/export_guide_modes.py` re-imports such a file to check they come back as guides. In the *leave out* mode Unreal regenerates
+guides from the strands if the file is imported back, as for any groom without guides.
+
+The completion notification says where the guides went, e.g. *"1,234 guide curve(s)
+kept with the strands. Blender renders them as extra hair…"*, so a Blender export with
+the wrong mode does not go unnoticed.
+
+## Physics settings file
+
+Alembic carries geometry only, so a groom's simulation settings are lost on export and
+have to be looked up by hand in the Groom Asset editor. With **Write physics settings**
+on (it is part of the Blender preset), the export also writes `<name>.physics.json`
+next to `<name>.abc`:
+
+```jsonc
+{
+  "format": "groom_physics_settings",
+  "format_version": 1,
+  "engine_version": "5.8.2-…",
+  "groom_asset": "/Game/MetaHumans/…/Grooms/Eyelashes_S_Thin.Eyelashes_S_Thin",
+  "units": "Values are copied verbatim from the Groom Asset, in Unreal units: centimeters, Z-up, gravity in cm/s^2. …",
+  "export": {                       // how the .abc next to it was written
+    "alembic_file": "Eyelashes_S_Thin.abc",
+    "coordinate_system": "y_up", "unit_scale": 1, "guide_mode": "exclude",
+    "num_curves": …, "num_guide_curves": 0, "num_guide_curves_left_out": …,
+    "curves_objects": [ { "name": "group_0", "group_id": 0, "guides_only": false, "num_curves": …, … } ]
+  },
+  "asset": { "enableGlobalInterpolation": …, "hairInterpolationType": … },
+  "groups": [                       // one entry per hair group of the asset, in editor order
+    {
+      "group_index": 0,
+      "physics": {                  // FHairGroupsPhysics
+        "solverSettings":      { "bEnableSimulation": …, "subSteps": …, "iterationCount": …, … },
+        "externalForces":      { "gravityVector": { "x": 0, "y": 0, "z": -981 }, "airDrag": …, … },
+        "materialConstraints": { "bendConstraint": { "bendStiffness": …, "bendDamping": …, … },
+                                 "stretchConstraint": { … }, "collisionConstraint": { … } },
+        "strandsParameters":   { … }
+      },
+      "interpolation": { … },       // FHairGroupsInterpolation: guide density, interpolation, rigging
+      "info": { … }                 // FHairGroupInfo: curve and guide counts as Unreal built them
+    }
+  ]
+}
+```
+
+(Abridged. `…` stands for values; the real file is plain JSON without comments.)
+
+The settings are read through Unreal's reflection rather than a hand-written list, so
+every field the engine version has is written, under the engine's own property names
+(Unreal's JSON converter lower-cases the first letter). A property that does not exist
+in the running engine version is listed under `not_found_in_this_engine_version`
+instead of failing the export; only `HairGroupsPhysics` itself is required.
+
+Values are **not** converted: they stay in Unreal units and axes whatever coordinate
+system and unit scale the `.abc` was written with. For Blender, which is Z-up like
+Unreal: gravity `(0, 0, -981)` cm/s² is Blender's `(0, 0, -9.81)` m/s².
 
 ## Coordinate space
 
@@ -138,10 +256,34 @@ Or just open your `.uproject` and accept the "rebuild modules?" prompt.
 
 1. Right-click one or more Groom Assets in the Content Browser.
 2. Choose **Export Groom to Alembic (.abc)…**.
-3. Pick options, then a destination. A single selection asks for a file name; a
-   multi-selection asks for a folder once and writes `<AssetName>.abc` per groom. The
-   options dialog offers "use these settings for all selected grooms" so a batch does not
-   re-prompt.
+3. Pick options — or click a preset: **Blender** (Y-up, guides left out, physics
+   settings on) or **Unreal round trip** (the defaults) — then a destination. A single
+   selection asks for a file name; a multi-selection asks for a folder once and writes
+   `<AssetName>.abc` per groom. The options dialog offers "use these settings for all
+   selected grooms" so a batch does not re-prompt. The dialog remembers the last
+   settings for the rest of the editor session.
+
+### From Python
+
+```python
+import unreal
+
+lib = unreal.GroomExportBlueprintLibrary
+groom = unreal.load_asset("/Game/MetaHumans/NewMetaHumanCharacter/Grooms/Eyelashes_S_Thin")
+
+options = lib.get_blender_export_options()          # or get_unreal_round_trip_export_options()
+options.guide_mode = unreal.GroomAlembicGuideMode.SEPARATE   # MIXED / SEPARATE / EXCLUDE
+report = lib.export_groom_to_alembic_with_options(groom, "C:/Exports/Eyelashes.abc", options)
+
+print(report.success, report.error)
+print(report.num_curves, report.num_guide_curves, report.num_guide_curves_skipped)
+print(report.physics_settings_file)
+```
+
+`GroomAlembicExportOptions` fields: `convert_to_y_up`, `unit_scale`, `split_by_group`,
+`export_widths`, `export_root_uv`, `export_groom_attributes`, `guide_mode`,
+`write_physics_settings`. The 1.0 `export_groom_to_alembic(groom, path, y_up, scale,
+export_guide_curves)` still works: `export_guide_curves=False` is the *leave out* mode.
 
 Failures are reported per asset in a notification and logged under `LogGroomExport` /
 `LogGroomExportEditor`.
@@ -159,6 +301,8 @@ constants at the top of each script to test your own assets.
 | `export_both_modes.py` | Writes `Eyebrows_zup.abc` and `Eyebrows_yup.abc` for external DCC checking |
 | `verify_fidelity.py` | Round-trips and compares the two `.abc` files byte for byte — the strongest fidelity check |
 | `check_menu.py` | Confirms the context-menu entry registered. **GUI session only** (see below) |
+| `export_guide_modes.py` | 1.1: exports each groom with the three guide modes and checks the counts agree, re-imports the separate-objects file to check Unreal reads its guides back, and checks the `.physics.json` of a Blender-preset export |
+| `blender_check_abc.py` | 1.1, **runs in Blender**: lists the curves objects Blender creates from each `.abc`, with counts, attributes and height. `blender --background --factory-startup --python Tests/blender_check_abc.py -- a.abc b.abc` |
 
 `check_menu.py` cannot run as a commandlet: without a Content Browser the menu is never
 built and you get a false negative. Run it in a real editor session, which quits itself:
@@ -189,7 +333,7 @@ Two things that will bite you when scripting this:
   `(error, groups, curves, points)` — the C++ `bool` return is not part of the tuple. The
   test scripts pick values out by type rather than assuming an arity.
 
-### Blender check (Eyebrows_M_Full)
+### Blender check (Eyebrows_M_Full, original 1.0 verification)
 
 Imported into Blender 4.4 as a single `CURVES` object, 1508 curves / 15631 points — the
 same counts Unreal reports.
@@ -213,11 +357,17 @@ perfectly, looks rotated in Blender. Pick the mode for the destination.
   are ordinary static meshes and export as FBX through the normal asset export path. This
   plugin handles strand data only.
 - `Eyelashes_S_Thin` has no cards mesh — strands only.
-- Only tested on UE 5.7 / Windows. Reports for other engine versions and platforms are very welcome.
+- The 1.0 code is tested on UE 5.7 and 5.8.2, on Windows. Reports for other engine versions and platforms are very welcome.
 
-## License
+## Credits and license
 
-MIT. Not affiliated with or endorsed by Epic Games. Unreal Engine and MetaHuman are trademarks of Epic Games, Inc.
+- Original exporter (1.0): **[effectustasi](https://github.com/effectustasi)**,
+  [effectustasi/unreal-groom-alembic-exporter](https://github.com/effectustasi/unreal-groom-alembic-exporter).
+- 1.1 changes (guide curves, Blender preset, physics settings file, UE 5.8 check):
+  [The-Cyril5555](https://github.com/The-Cyril5555).
+
+MIT, see [LICENSE](LICENSE), which keeps the original copyright notice. Not affiliated
+with or endorsed by Epic Games. Unreal Engine and MetaHuman are trademarks of Epic Games, Inc.
 
 ## More tools by effectustasi
 
