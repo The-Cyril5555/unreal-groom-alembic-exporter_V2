@@ -123,9 +123,32 @@ namespace GroomExportPrivate
 		TVertexAttributesRef<FVector3f> VertexVec3;
 	};
 
-	/** Resolve every "groom_*" strand/vertex attribute we know how to write. */
+	/**
+	 * Per-strand references to guide curves, from the groom Alembic spec: the groom_id of
+	 * up to three guides per strand and their weights (precomputed interpolation).
+	 */
+	bool IsGuideReferenceAttribute(FName Name)
+	{
+		static const FName ClosestGuides(TEXT("groom_closest_guides"));
+		static const FName GuideWeights(TEXT("groom_guide_weights"));
+		return Name == ClosestGuides || Name == GuideWeights;
+	}
+
+	/** True for a curve Unreal's groom builder treats as a guide: groom_guide == 1. */
+	FORCEINLINE bool IsGuideCurve(TStrandAttributesRef<int> GuideRef, int32 StrandIndex)
+	{
+		return GuideRef.IsValid() && GuideRef[FStrandID(StrandIndex)] == 1;
+	}
+
+	/**
+	 * Resolve every "groom_*" strand/vertex attribute we know how to write.
+	 * bDropGuideReferences leaves out groom_closest_guides / groom_guide_weights: when the
+	 * guides are not written, those would point at curves missing from the file, and
+	 * Unreal's importer would bind every strand of a group to its first generated guide.
+	 */
 	void GatherPassthroughAttributes(
 		FHairDescription& HairDescription,
+		bool bDropGuideReferences,
 		TArray<FPassthroughAttribute>& Out)
 	{
 		// Matches the importer's filter (AlembicHairTranslatorUtils::IsAttributeValid).
@@ -140,6 +163,10 @@ namespace GroomExportPrivate
 			for (FName Name : Names)
 			{
 				if (!IsGroomAttribute(Name) || IsExplicitlyHandledAttribute(Name))
+				{
+					continue;
+				}
+				if (bDropGuideReferences && IsGuideReferenceAttribute(Name))
 				{
 					continue;
 				}
@@ -390,7 +417,7 @@ bool FGroomAlembicWriter::Export(
 
 		for (int32 StrandIndex = 0; StrandIndex < NumStrands; ++StrandIndex)
 		{
-			const bool bIsGuide = GuideRef.IsValid() && GuideRef[FStrandID(StrandIndex)] != 0;
+			const bool bIsGuide = IsGuideCurve(GuideRef, StrandIndex);
 			if (bIsGuide && InSettings.GuideMode == EGroomAlembicGuideMode::Exclude)
 			{
 				++OutResult.NumGuideCurvesSkipped;
@@ -430,7 +457,9 @@ bool FGroomAlembicWriter::Export(
 	TArray<FPassthroughAttribute> PassthroughAttributes;
 	if (InSettings.bExportGroomAttributes)
 	{
-		GatherPassthroughAttributes(HairDescription, PassthroughAttributes);
+		GatherPassthroughAttributes(HairDescription,
+			/*bDropGuideReferences*/ InSettings.GuideMode == EGroomAlembicGuideMode::Exclude,
+			PassthroughAttributes);
 	}
 
 	// A guides-only object must stay recognisable as guides even when the groom_*
@@ -483,7 +512,7 @@ bool FGroomAlembicWriter::Export(
 			{
 				const int32 Count = VertexCountRef[FStrandID(StrandIndex)];
 				GroupPointCount += Count;
-				if (GuideRef.IsValid() && GuideRef[FStrandID(StrandIndex)] != 0)
+				if (IsGuideCurve(GuideRef, StrandIndex))
 				{
 					++BucketGuideCurves;
 					BucketGuidePoints += Count;

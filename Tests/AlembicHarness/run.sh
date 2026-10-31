@@ -33,12 +33,12 @@ $CXX "$HERE/dump.cpp" $LIBS -o "$BUILD/dump"
 cd "$BUILD"
 status=0
 echo "==== 1.0 writer"
-./harness_v10 out 2>/dev/null || status=1
+./harness_v10 out 2>/dev/null | tee v10.log || status=1
 echo "==== current writer"
-./harness_current out 2>/dev/null || status=1
+./harness_current out 2>/dev/null | tee current.log || status=1
 
 echo "==== 1.0 vs current, same settings"
-for f in mixed exclude mixed_nosplit exclude_noattrs mixed_yup exclude_yup strandwidth_mixed_m noguideattr_mixed; do
+for f in mixed exclude mixed_nosplit exclude_noattrs mixed_yup exclude_yup strandwidth_mixed_m noguideattr_mixed weights_mixed oddguides_mixed; do
 	if cmp -s "out/v10_$f.abc" "out/v11_$f.abc"; then
 		echo "IDENTICAL  $f"
 	else
@@ -46,6 +46,17 @@ for f in mixed exclude mixed_nosplit exclude_noattrs mixed_yup exclude_yup stran
 		status=1
 	fi
 done
+
+echo "==== intended differences from 1.0"
+# Leave-out no longer writes the guide weights, which point at the guides it leaves out.
+for f in v10_weights_exclude v11_weights_exclude v11_weights_separate; do
+	n=$(./dump "out/$f.abc" | grep -c -E "arb (groom_closest_guides|groom_guide_weights) " || true)
+	echo "$f: $n guide-weight param(s)"
+done
+[ "$(./dump out/v11_weights_exclude.abc | grep -c -E 'arb (groom_closest_guides|groom_guide_weights) ' || true)" -eq 0 ] || { echo "DIFFERENT  weights_exclude still has guide weights"; status=1; }
+[ "$(./dump out/v11_weights_separate.abc | grep -c -E 'arb (groom_closest_guides|groom_guide_weights) ' || true)" -gt 0 ] || { echo "DIFFERENT  weights_separate lost its guide weights"; status=1; }
+# groom_guide = 2 is not a guide for Unreal: 1.0 left those strands out, 1.1 keeps them.
+grep -h -E "oddguides_exclude" v10.log current.log | sed "s/ abc=.*//" || true
 
 echo "==== layouts"
 ./dump out/v11_separate.abc out/v11_exclude.abc out/v11_separate_noattrs.abc

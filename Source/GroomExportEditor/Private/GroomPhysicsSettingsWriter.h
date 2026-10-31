@@ -13,7 +13,8 @@ struct FGroomExportResult;
  * be reproduced in another DCC (Alembic has no place for them).
  *
  * The values are read through UE reflection rather than hand-picked fields, so whatever
- * the engine version stores is written, under the engine's own property names:
+ * the engine version stores is written, under the engine's own property names (as
+ * FJsonObjectConverter::StandardizeCase writes them: first letter lower-cased, "ID" -> "Id"):
  *
  *   groups[i].physics        FHairGroupsPhysics of hair group i: solver settings, external
  *                            forces (gravity, air drag), bend / stretch stiffness and

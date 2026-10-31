@@ -32,6 +32,17 @@ Based on effectustasi's 1.0 (commit `9eaf714`, 2026-10-03).
   documented as the number of hair groups, which is the number of curves objects in
   every case this function can produce.
 - The internal `FGroomExportSettings::bExportGuideCurves` is replaced by `GuideMode`.
+- A curve counts as a guide when `groom_guide == 1`, as in Unreal's groom builder
+  (1.0: any non-zero value). Only grooms with non-standard values are affected.
+
+### Fixed
+
+- *Leave out* (1.0: `bExportGuideCurves = false`) no longer writes the strands'
+  `groom_closest_guides` / `groom_guide_weights`. They pointed at the guides it leaves
+  out, so a re-import into Unreal bound every strand of a group to one generated guide.
+  Only grooms carrying precomputed guide weights are affected.
+- README: failures from the context menu raise one notification per batch, not per
+  asset; the 1.0 Python function returns `None` on failure.
 - The `ExportGroomToAlembic` doc comment sat above `IsExportMenuEntryRegistered`; it is
   back on its function.
 - The module depends on `Json` and `JsonUtilities` (both ship with the engine).

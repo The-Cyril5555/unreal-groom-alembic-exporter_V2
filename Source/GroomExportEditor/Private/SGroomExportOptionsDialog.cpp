@@ -164,7 +164,8 @@ namespace GroomExportOptionsDialog
 					LOCTEXT("GuidesMixed", "Keep with the strands (Unreal round trip)"),
 					LOCTEXT("GuidesMixedTip",
 						"Guides stay in the same curves objects as the strands, flagged by groom_guide. "
-						"Re-imports into Unreal exactly, but Blender renders them as hair."));
+						"Re-imports into Unreal exactly, as long as 'Export groom_* attributes' is on (without "
+						"it nothing marks them as guides any more). Blender renders them as hair."));
 
 				AddGuideModeRadio(Options, EGroomAlembicGuideMode::Separate,
 					LOCTEXT("GuidesSeparate", "Write to separate objects (guides_group_N)"),
@@ -176,8 +177,10 @@ namespace GroomExportOptionsDialog
 				AddGuideModeRadio(Options, EGroomAlembicGuideMode::Exclude,
 					LOCTEXT("GuidesExclude", "Leave out (render strands only)"),
 					LOCTEXT("GuidesExcludeTip",
-						"Guides are not written. Recommended for Blender rendering. Unreal regenerates guides "
-						"from the strands if the file is imported back."));
+						"Guides are not written, nor the strands' precomputed guide weights "
+						"(groom_closest_guides / groom_guide_weights), which would point at them. Recommended "
+						"for Blender rendering. Unreal regenerates guides from the strands if the file is "
+						"imported back."));
 
 				AddSimpleCheckBox(Options,
 					LOCTEXT("Physics", "Write physics settings (.physics.json)"),

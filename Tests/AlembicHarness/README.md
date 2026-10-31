@@ -51,4 +51,9 @@ python Tests/blender_check_abc.py -- Tests/AlembicHarness/build/out/v11_separate
 `main.cpp` builds 100 strands of 3 to 10 points in two hair groups with non-sequential
 ids (3, then 1), 23 of them flagged `groom_guide = 1`, with per-vertex widths and colours,
 root UVs, int / FName strand attributes and groom-scope attributes. Variants: per-strand
-widths, no `groom_guide` attribute, every strand a guide.
+widths, no `groom_guide` attribute, every strand a guide, precomputed guide weights
+(`groom_closest_guides` / `groom_guide_weights`), some `groom_guide` values of 2.
+
+Two differences from 1.0 are intended and checked separately: *leave out* no longer
+writes the guide weights (they point at the guides it leaves out), and only
+`groom_guide == 1` counts as a guide, as in Unreal's groom builder.

@@ -23,7 +23,7 @@ Assets. UE ships a groom Alembic *importer* but no exporter; this plugin fills t
   collisions, guide interpolation), which Alembic has no place for. See
   [Physics settings file](#physics-settings-file).
 - **Scripting:** `ExportGroomToAlembicWithOptions` exposes every option and returns a
-  report struct. The 1.0 `ExportGroomToAlembic` is unchanged for existing scripts.
+  report struct. The 1.0 `ExportGroomToAlembic` keeps its signature for existing scripts.
 - **Unreal 5.8:** the 1.0 code compiles and exports correctly on UE 5.8.2.
 
 ## Install
@@ -49,11 +49,11 @@ library with a small stand-in for the Unreal types, warning-free with `-Wall -We
 
 | Check | Result |
 | --- | --- |
-| 1.1 *keep with the strands* vs 1.0 with guides | ✅ byte-identical, 5 settings combinations (split or not, Z-up or Y-up, unit scale, per-strand widths, no guide attribute) |
-| 1.1 *leave out* vs 1.0 without guides | ✅ byte-identical, 3 combinations (with and without groom_* attributes, Y-up) |
+| 1.1 *keep with the strands* vs 1.0 with guides | ✅ byte-identical, 7 combinations (split or not, Z-up or Y-up, unit scale, per-strand widths, no guide attribute, precomputed guide weights, non-standard `groom_guide` values) |
+| 1.1 *leave out* vs 1.0 without guides | ✅ byte-identical, 3 combinations (with and without groom_* attributes, Y-up); differs only where 1.1 fixes 1.0, see [CHANGELOG](CHANGELOG.md) |
 | *Separate objects*: strand objects | ✅ same data as *leave out* (positions, counts, widths) |
 | *Separate objects*: guide objects | ✅ `groom_guide = 1` on every curve, also with *Export groom_\* attributes* off |
-| Counts reported (curves, points, guides, objects) | ✅ match the archive in all 16 exports |
+| Counts reported (curves, points, guides, objects) | ✅ match the archive in all 23 exports |
 | Blender 5.2.3 import | ✅ strands `groom`, `groom.001`…, guides `guides_group_N`; Y-up lands at head height |
 
 Not checked yet: compiling the editor module (dialog, Python API, physics file) and
@@ -154,15 +154,22 @@ The options dialog now has three choices:
 
 | Mode | What is written | Use it for |
 | --- | --- | --- |
-| **Keep with the strands** (default) | Guides mixed into `group_N`, flagged `groom_guide = 1` | Round trip into Unreal (byte-identical, as in 1.0) |
+| **Keep with the strands** (default) | Guides mixed into `group_N`, flagged `groom_guide = 1` (with *Export groom_\* attributes* on, the default; without it nothing marks them) | Round trip into Unreal (byte-identical, as in 1.0) |
 | **Separate objects** | Strands in `group_N`, guides in `guides_group_N`, always flagged `groom_guide = 1` | Blender / Houdini / Maya when you want the guides too (simulation, inspection). In Blender the strands import as `groom`, `groom.001`, … and the guides as `guides_group_N`: hide or delete those to render |
 | **Leave out** | Strands only | Rendering in Blender: nothing to clean up |
 
-In the separate mode the strand objects are exactly what the *leave out* mode writes,
+A curve is a guide when its `groom_guide` is 1, the test Unreal's groom builder uses.
+In the separate mode the strand objects carry the same data as in the *leave out* mode,
 and a guide object stays recognisable even with *Export groom_\* attributes* off: it
-always carries `groom_guide = 1`, which is how Unreal's importer recognises guides;
-`Tests/export_guide_modes.py` re-imports such a file to check they come back as guides. In the *leave out* mode Unreal regenerates
-guides from the strands if the file is imported back, as for any groom without guides.
+always carries `groom_guide = 1`, which is how Unreal's importer recognises guides.
+`Tests/export_guide_modes.py` re-imports a separate-objects file, with and without the
+groom_\* attributes, to check the guides come back as guides.
+
+In the *leave out* mode the strands' precomputed guide weights (`groom_closest_guides`,
+`groom_guide_weights`, present in some Houdini or XGen exports) are left out too: they
+would point at guides that are not in the file, and Unreal would then bind every strand
+of a group to the same generated guide. Imported back, the file behaves like any groom
+without guides: Unreal generates guides from the strands.
 
 The completion notification says where the guides went, e.g. *"1,234 guide curve(s)
 kept with the strands. Blender renders them as extra hair…"*, so a Blender export with
@@ -193,7 +200,7 @@ next to `<name>.abc`:
     {
       "group_index": 0,
       "physics": {                  // FHairGroupsPhysics
-        "solverSettings":      { "bEnableSimulation": …, "subSteps": …, "iterationCount": …, … },
+        "solverSettings":      { "bEnableDeformation": …, "enableSimulation": …, "subSteps": …, "iterationCount": …, … },
         "externalForces":      { "gravityVector": { "x": 0, "y": 0, "z": -981 }, "airDrag": …, … },
         "materialConstraints": { "bendConstraint": { "bendStiffness": …, "bendDamping": …, … },
                                  "stretchConstraint": { … }, "collisionConstraint": { … } },
@@ -210,7 +217,8 @@ next to `<name>.abc`:
 
 The settings are read through Unreal's reflection rather than a hand-written list, so
 every field the engine version has is written, under the engine's own property names
-(Unreal's JSON converter lower-cases the first letter). A property that does not exist
+(Unreal's JSON converter lower-cases the first letter and writes `ID` as `Id`, e.g.
+`GroupID` → `groupId`). A property that does not exist
 in the running engine version is listed under `not_found_in_this_engine_version`
 instead of failing the export; only `HairGroupsPhysics` itself is required.
 
@@ -308,9 +316,12 @@ print(report.physics_settings_file)
 `export_widths`, `export_root_uv`, `export_groom_attributes`, `guide_mode`,
 `write_physics_settings`. The 1.0 `export_groom_to_alembic(groom, path, y_up, scale,
 export_guide_curves)` still works: `export_guide_curves=False` is the *leave out* mode.
+Prefer the new function from Python: when an export fails, the 1.0 one returns `None`
+and its error text is lost (see below).
 
-Failures are reported per asset in a notification and logged under `LogGroomExport` /
-`LogGroomExportEditor`.
+From the context menu, a batch with failures raises one notification giving how many
+assets failed and the first error; every failure is logged under `LogGroomExportEditor`.
+From Python nothing is notified: read `report.success` and `report.error`.
 
 ## Verifying it
 
@@ -354,9 +365,12 @@ Two things that will bite you when scripting this:
 - **Use forward slashes in `-script=`.** UE processes backslash escapes inside the quoted
   value, so `...\Tests\roundtrip_test.py` silently truncates at the `\r` of "roundtrip" and
   you get `Could not load Python file '...\Tests`.
-- **The Python return is out-params only.** `export_groom_to_alembic` returns
-  `(error, groups, curves, points)` — the C++ `bool` return is not part of the tuple. The
-  test scripts pick values out by type rather than assuming an arity.
+- **The Python return is out-params only, and only on success.** `export_groom_to_alembic`
+  returns `(error, groups, curves, points)` when the export succeeds — the C++ `bool`
+  return is not part of the tuple. When it fails, Unreal's Python layer returns `None`
+  instead, so the error text does not reach Python. The 1.0 test scripts pick values out
+  by type rather than assuming an arity. `export_groom_to_alembic_with_options` (1.1)
+  always returns its report, `report.error` included.
 
 ### Blender check (Eyebrows_M_Full, original 1.0 verification)
 

@@ -6,7 +6,7 @@
 #include "GroomExportTypes.generated.h"
 
 /**
- * What to do with the curves a groom flags as simulation guides (groom_guide != 0).
+ * What to do with the curves a groom flags as simulation guides (groom_guide == 1).
  *
  * Guides drive the physics; they are not meant to be rendered. Unreal tells them apart
  * through the groom_guide attribute, but most DCC importers (Blender's included) ignore
@@ -17,8 +17,9 @@ UENUM(BlueprintType)
 enum class EGroomAlembicGuideMode : uint8
 {
 	/**
-	 * Guides stay in the same curves object as the strands, flagged by groom_guide.
-	 * This is the original behaviour and the byte-identical round trip into Unreal.
+	 * Guides stay in the same curves object as the strands, flagged by groom_guide (when
+	 * the groom_* attributes are exported). This is the original behaviour and the
+	 * byte-identical round trip into Unreal.
 	 */
 	Mixed UMETA(DisplayName = "Keep with the strands"),
 
@@ -29,7 +30,11 @@ enum class EGroomAlembicGuideMode : uint8
 	 */
 	Separate UMETA(DisplayName = "Separate objects"),
 
-	/** Guides are not written at all: the file holds the render strands only. */
+	/**
+	 * Guides are not written at all: the file holds the render strands only. Their
+	 * groom_closest_guides / groom_guide_weights, which would point at the missing
+	 * guides, are left out too.
+	 */
 	Exclude UMETA(DisplayName = "Leave out"),
 };
 

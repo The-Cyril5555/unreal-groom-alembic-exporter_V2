@@ -58,7 +58,7 @@ struct FGroomExportSettings
 	bool bExportGroomAttributes = true;
 
 	/**
-	 * Where the curves flagged as simulation guides (groom_guide != 0) go: mixed with the
+	 * Where the curves flagged as simulation guides (groom_guide == 1) go: mixed with the
 	 * strands (round trip), in their own curves objects, or left out.
 	 */
 	EGroomAlembicGuideMode GuideMode = EGroomAlembicGuideMode::Mixed;

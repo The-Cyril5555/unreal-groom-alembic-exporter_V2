@@ -17,6 +17,8 @@ namespace
 		bool bGuideAttribute = true;   // has a groom_guide strand attribute
 		bool bAllGuides = false;       // every strand is a guide
 		bool bVertexWidth = true;      // per-vertex widths (else per-strand)
+		bool bGuideWeights = false;    // precomputed groom_closest_guides / groom_guide_weights
+		bool bOddGuideValues = false;  // some groom_guide values are 2 (not a guide for Unreal)
 	};
 
 	bool IsGuide(int32 StrandIndex) { return StrandIndex % 9 == 0 || StrandIndex % 9 == 4; }
@@ -40,7 +42,7 @@ namespace
 			const int32 Count = 3 + (S * 7) % 8;
 			VertexCount.push_back(Count);
 			GroupID.push_back(S < 60 ? 3 : 1);           // non-sequential ids, first seen: 3 then 1
-			Guide.push_back(Spec.bAllGuides || IsGuide(S) ? 1 : 0);
+			Guide.push_back(Spec.bAllGuides || IsGuide(S) ? (Spec.bOddGuideValues && S % 9 == 4 ? 2 : 1) : 0);
 			StrandID.push_back(1000 + S);
 			ClumpID.push_back(S / 10);
 			RootUV.push_back(FVector2f(S * 0.01f, 1.f - S * 0.01f));
@@ -71,6 +73,17 @@ namespace
 		if (!Spec.bVertexWidth) { D.Strands.Register<float>(HairAttribute::Strand::Width, StrandWidth); }
 		D.Strands.Register<FName>(FName("groom_hair_name"), HairName);
 		D.Strands.Register<FName>(HairAttribute::Strand::BasisType, Basis);
+		if (Spec.bGuideWeights)
+		{
+			std::vector<FVector3f> Closest, Weights;
+			for (int32 S = 0; S < NumStrands; ++S)
+			{
+				Closest.push_back(FVector3f(1000.f, 1004.f, 1009.f));  // groom_id of guide strands 0, 4, 9
+				Weights.push_back(FVector3f(0.5f, 0.3f, 0.2f));
+			}
+			D.Strands.Register<FVector3f>(FName("groom_closest_guides"), Closest);
+			D.Strands.Register<FVector3f>(FName("groom_guide_weights"), Weights);
+		}
 
 		D.Groom.Register<int>(HairAttribute::Groom::MajorVersion, { 1 });
 		D.Groom.Register<FName>(HairAttribute::Groom::Tool, { FName("Houdini") });
@@ -112,6 +125,8 @@ int main(int Argc, char** Argv)
 	const UGroomAsset NoGuideAttr = MakeGroom({ "NoGuideAttr", false });
 	const UGroomAsset AllGuides = MakeGroom({ "AllGuides", true, true });
 	const UGroomAsset StrandWidth = MakeGroom({ "StrandWidth", true, false, false });
+	const UGroomAsset Weights = MakeGroom({ "Weights", true, false, true, true });
+	const UGroomAsset OddGuides = MakeGroom({ "OddGuides", true, false, true, false, true });
 
 #if HARNESS_V11
 	const std::string Tag = Out + "/v11_";
@@ -145,6 +160,13 @@ int main(int Argc, char** Argv)
 	{ auto S = Settings(Mixed); S.UnitScale = 0.01f; Export(StrandWidth, Tag + "strandwidth_mixed_m.abc", S); }
 	Export(NoGuideAttr, Tag + "noguideattr_mixed.abc", Settings(Mixed));
 	Export(AllGuides, Tag + "allguides_exclude.abc", Settings(Exclude), /*bExpectSuccess*/ false);
+	Export(Weights, Tag + "weights_mixed.abc", Settings(Mixed));
+	Export(OddGuides, Tag + "oddguides_mixed.abc", Settings(Mixed));
+
+	// 1.1 changed these on purpose: leave-out drops the guide weights, and only groom_guide == 1
+	// counts as a guide, as in Unreal's groom builder.
+	Export(Weights, Tag + "weights_exclude.abc", Settings(Exclude));
+	Export(OddGuides, Tag + "oddguides_exclude.abc", Settings(Exclude));
 
 #if HARNESS_V11
 	// 1.1 only.
@@ -156,6 +178,8 @@ int main(int Argc, char** Argv)
 	Export(NoGuideAttr, Tag + "noguideattr_separate.abc", Settings(Separate));
 	Export(AllGuides, Tag + "allguides_separate.abc", Settings(Separate));
 	{ auto S = Settings(Separate); S.bWritePhysicsSettings = true; Export(Groom, Tag + "separate_physics_stub.abc", S); }
+	Export(Weights, Tag + "weights_separate.abc", Settings(Separate));
+	Export(OddGuides, Tag + "oddguides_separate.abc", Settings(Separate));
 #endif
 
 	std::printf("---- %d unexpected result(s)\n", GFailures);

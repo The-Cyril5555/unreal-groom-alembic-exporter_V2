@@ -8,7 +8,9 @@ For each groom in the Grooms folder it:
        Separate writes the same curves as Mixed, and the same number of guides;
        Exclude writes Mixed's curves minus its guides, and reports them as left out;
   3. re-imports the Separate file into Unreal and exports it again in Mixed mode. The
-     same curve and guide counts prove Unreal reads the guides_* objects back as guides;
+     same curve and guide counts prove Unreal reads the guides_* objects back as guides.
+     Done twice: with the groom_* attributes (the default) and without them, where only
+     the explicit groom_guide = 1 on the guide objects marks them as guides;
   4. exports with the Blender preset and checks the .physics.json next to the .abc
      parses, then prints the stiffness / damping / gravity / collision values it holds.
 
@@ -53,10 +55,11 @@ def find_grooms():
     return sorted(grooms, key=lambda a: a.get_name())
 
 
-def export(groom, path, mode, physics=False, blender=False):
+def export(groom, path, mode, physics=False, blender=False, attributes=True):
     options = LIB.get_blender_export_options() if blender else LIB.get_unreal_round_trip_export_options()
     options.guide_mode = mode
     options.write_physics_settings = physics
+    options.export_groom_attributes = attributes
     return LIB.export_groom_to_alembic_with_options(groom, path, options)
 
 
@@ -77,6 +80,26 @@ def reimport(abc_path, asset_name):
         if isinstance(asset, unreal.GroomAsset):
             return asset
     return None
+
+
+def check_reimport(name, label, abc_path, mixed, guides):
+    """Re-imports abc_path, exports it again in Mixed mode, compares with the original export."""
+    imported = reimport(abc_path, "%s_%s" % (name, label.upper()))
+    if imported is None:
+        unreal.log_error("FAIL %-24s re-import of the %s file produced no GroomAsset" % (name, label))
+        return False
+    back = export(imported, os.path.join(OUT_DIR, "%s_%s_rt.abc" % (name, label)), unreal.GroomAlembicGuideMode.MIXED)
+    if not back.success:
+        unreal.log_error("FAIL %-24s export after re-import of the %s file: %s" % (name, label, back.error))
+        return False
+    got = (back.num_curves, back.num_points, back.num_guide_curves)
+    expected = (mixed.num_curves, mixed.num_points, guides)
+    if got != expected:
+        unreal.log_error("DIFF %-24s %s file after re-import: curves=%d points=%d guides=%d, expected %d / %d / %d"
+                         % ((name, label) + got + expected))
+        return False
+    unreal.log("OK   %-24s %s file re-imports with its %d guides" % (name, label, guides))
+    return True
 
 
 def walk_physics(node, path, out):
@@ -175,22 +198,18 @@ def main():
             continue
 
         # Separate -> Unreal -> Mixed must give back the same strands and guides.
-        imported = reimport(separate.alembic_file, name + "_SEP")
-        if imported is None:
+        if not check_reimport(name, "separate", separate.alembic_file, mixed, guides):
             failures += 1
-            unreal.log_error("FAIL %-24s re-import of the separate file produced no GroomAsset" % name)
-        else:
-            back = export(imported, os.path.join(OUT_DIR, "%s_separate_rt.abc" % name), unreal.GroomAlembicGuideMode.MIXED)
-            if not back.success:
-                failures += 1
-                unreal.log_error("FAIL %-24s export after re-import: %s" % (name, back.error))
-            elif (back.num_curves, back.num_points, back.num_guide_curves) != (mixed.num_curves, mixed.num_points, guides):
-                failures += 1
-                unreal.log_error("DIFF %-24s after re-import curves=%d points=%d guides=%d, expected %d / %d / %d"
-                                 % (name, back.num_curves, back.num_points, back.num_guide_curves,
-                                    mixed.num_curves, mixed.num_points, guides))
-            else:
-                unreal.log("OK   %-24s separate file re-imports with its %d guides" % (name, guides))
+
+        # Same without the groom_* attributes: the guide objects' own groom_guide = 1 is
+        # then the only thing that marks them (Unreal may regroup the curves, counts stay).
+        bare = export(groom, os.path.join(OUT_DIR, "%s_separate_noattrs.abc" % name),
+                      unreal.GroomAlembicGuideMode.SEPARATE, attributes=False)
+        if not bare.success:
+            failures += 1
+            unreal.log_error("FAIL %-24s separate export without attributes: %s" % (name, bare.error))
+        elif not check_reimport(name, "separate_noattrs", bare.alembic_file, mixed, guides):
+            failures += 1
 
         # Blender preset + physics settings file.
         blender = export(groom, os.path.join(OUT_DIR, "%s_blender.abc" % name),
